@@ -1,0 +1,6 @@
+tensorflow  # or tensorflow-gpu if you're using GPU acceleration
+numpy
+gym-chess 
+python-chess
+ipywidgets
+IPython
