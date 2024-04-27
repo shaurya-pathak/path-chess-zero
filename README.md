@@ -1,6 +1,7 @@
 # AlphaZero-like Chess Model
 
 This repository contains an implementation of a neural network-based chess engine inspired by DeepMind's AlphaZero. The model combines Monte Carlo Tree Search (MCTS) with deep learning techniques to play chess at a competitive level, learning from games played against itself in a process known as self-play.
+NOTE: This code is meant for experimentation, and a conceptual understanding of how Monte Carlo Tree Search works, and how a modification of it, such as replacing the simulation aspect with a deep learning neural network would effect a chess bot, there are better chess engines that are made by neural networks available, but this one should help a learner understand the core mechanics behind a Neural Network based chess engine.
 
 ## Features
 
