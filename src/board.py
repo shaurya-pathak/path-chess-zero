@@ -28,6 +28,28 @@ def create_move_mapping():
 
     return move_mapping
 
+def get_historical_representation(current_state, history):
+    # Encode the current state
+    current_encoded = encodeBoard(current_state)
+
+    # If history is not initialized (empty), create it with the current state
+    if history.shape[0] == 0:
+        # Initialize history as a 4D array with the first state
+        history = np.expand_dims(current_encoded, axis=0)
+    else:
+        # Append the new state at the end, along the first dimension (axis=0)
+        history = np.append(history, np.expand_dims(current_encoded, axis=0), axis=0)
+        
+        # If the history exceeds 4 entries, remove the oldest (first) entry
+        if history.shape[0] > 4:
+            history = history[1:]  # Slice off the first entry
+
+    # If there are fewer than 4 states, repeat the first state to fill up the buffer
+    while history.shape[0] < 4:
+        history = np.insert(history, 0, history[0], axis=0)
+
+    return history
+
 def filter_legal_moves(board, policy_vector, move_mapping):
     legal_moves = list(board.legal_moves)
     legal_indices = []

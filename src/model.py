@@ -103,4 +103,8 @@ def train_model(model, game_data, n_epochs):
     Y_value = np.array(value_estimates)
 
     # Train the model. This assumes your model has two outputs: policy and value
-    model.fit(X, [Y_policy, Y_value], batch_size=64, epochs=n_epochs)
+    history = model.fit(X, [Y_policy, Y_value], batch_size=64, epochs=n_epochs)
+
+    # Return the history object containing the loss metrics
+    return history.history
+

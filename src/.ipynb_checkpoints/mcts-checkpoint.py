@@ -1,20 +1,27 @@
 import numpy as np
+from .board import encodeBoard, encodeMove, decodeMove
 
 def get_historical_representation(current_state, history):
-    # Encode the current state and add to history
+    # Encode the current state
     current_encoded = encodeBoard(current_state)
-    history.append(current_encoded)
 
-    # Ensure history is no longer than 4 states
-    if len(history) > 4:
-        history.pop(0)
+    # If history is not initialized (empty), create it with the current state
+    if history.shape[0] == 0:
+        # Initialize history as a 4D array with the first state
+        history = np.expand_dims(current_encoded, axis=0)
+    else:
+        # Append the new state at the end, along the first dimension (axis=0)
+        history = np.append(history, np.expand_dims(current_encoded, axis=0), axis=0)
+        
+        # If the history exceeds 4 entries, remove the oldest (first) entry
+        if history.shape[0] > 4:
+            history = history[1:]  # Slice off the first entry
 
-    # If fewer than 4 states, repeat the first state to fill the buffer
-    while len(history) < 4:
-        history.append(history[0])
+    # If there are fewer than 4 states, repeat the first state to fill up the buffer
+    while history.shape[0] < 4:
+        history = np.insert(history, 0, history[0], axis=0)
 
-    # Stack the representations along a new axis
-    return np.stack(history, axis=0)
+    return history
 
 class Node:
     def __init__(self, state, parent=None, history = None):
@@ -24,7 +31,12 @@ class Node:
         self.visits = 0
         self.value = 0.0
         self.untried_actions = list(self.state.legal_moves)
-        self.history = history if history is not None else []
+        if isinstance(history, np.ndarray):
+            self.history = history
+        else:
+            # If history is None or not a numpy array, initialize it as an empty numpy array
+            # with dimensions (0, 8, 8, 14) which is appropriate for storing state encodings
+            self.history = np.empty((0, 8, 8, 14))
 
         self.policy = None  # Placeholder for storing the policy vector for this node, if needed.
 
@@ -43,16 +55,17 @@ class Node:
             # Use the history passed in to generate the new historical representation
             # This ensures history is passed correctly and updated within each node
             new_history = history.copy()  # Copy the current history
-            new_history.append(encodeBoard(next_state))  # Add the new state to the history
-            if len(new_history) > 4:
-                new_history.pop(0)  # Ensure only the last four states are kept
+            new_history = get_historical_representation(next_state, self.history)
+            # new_history.append(encodeBoard(next_state))  # Add the new state to the history
+            # if len(new_history) > 4:
+            #     new_history.pop(0)  # Ensure only the last four states are kept
     
             # Prepare the historical representation for the model
             representation = get_historical_representation(next_state, new_history)
             representation = representation.reshape(1, 4, 8, 8, 14)  # Ensure the correct shape for the model
     
             # Predict using the model
-            policy_vector, value_estimate = model.predict(representation)
+            policy_vector, value_estimate = model.predict(representation, verbose=0)
             child_node = Node(next_state, parent=self, history=new_history)  # Pass the updated history to the new node
             child_node.value = value_estimate
     
@@ -101,26 +114,8 @@ def neural_network_predict(current_eval_state):
     return policy_vector, value_estimate
 
 
-def prepare_historical_representation(history):
-    # Check if history length is less than required (e.g., 4 states), and pad if necessary
-    while len(history) < 4:
-        # Duplicate the first element if history is not empty, else use a zero array
-        if history:
-            history.insert(0, history[0])
-        else:
-            # Assuming your board encoding is a numpy array with the shape matching your network input
-            history.insert(0, np.zeros((8, 8, 14)))  # You need to replace (8, 8, 14) with the actual dimensions of your encoded state
-
-    # If there are more than 4 states, trim the oldest
-    if len(history) > 4:
-        history = history[-4:]
-
-    # Stack along a new dimension to create a single input tensor
-    return np.stack(history, axis=0)
-
-
 def uct_search(root_state, number_of_iterations, neural_network, history):
-    root_node = Node(root_state, history = [])
+    root_node = Node(root_state)
 
     for _ in range(number_of_iterations):
         node = root_node
@@ -128,13 +123,30 @@ def uct_search(root_state, number_of_iterations, neural_network, history):
             if node.is_fully_expanded():
                 node = node.best_child()
             else:
-                historical_representation = prepare_historical_representation(node.history)
+                historical_representation = get_historical_representation(root_state, history)
                 historical_representation = np.expand_dims(historical_representation, axis=0)  # Add batch dimension
-                policy_vector, _ = neural_network(historical_representation)
+                # print('Historical rep shape: ', historical_representation.shape)
+                #print(historical_representation[0,0,:,:,0])
+                policy_vector, _ = neural_network.predict(historical_representation, verbose=0)  # Ensure you use .predict() if needed
+#                 best_move_index = np.argmax(policy_vector)
+#                 best_move = decodeMove(best_move_index, board)  # Implement decodeMove based on your encoding
+
+#                 print("Predicted Best Move:", best_move)
                 legal_moves = list(node.state.legal_moves)
                 moves_probabilities = np.array([policy_vector[0, encodeMove(move, node.state)] for move in legal_moves])
-                moves_probabilities /= np.sum(moves_probabilities)
-                move = np.random.choice(legal_moves, p=moves_probabilities)
+
+                # Normalize the probabilities to ensure they sum to 1
+                normalized_probabilities = moves_probabilities / np.sum(moves_probabilities)
+
+                # Printing each legal move with its probability
+                # print("Legal moves and their probabilities:")
+#                 for move, prob in zip(legal_moves, normalized_probabilities):
+#                     print(f"Move: {move}, Probability: {prob:.4f}")
+                
+
+                # Choose move based on the probabilities
+                move = np.random.choice(legal_moves, p=normalized_probabilities)
+
 
                 if move not in node.untried_actions:
                     node = node.children[move]
@@ -142,15 +154,35 @@ def uct_search(root_state, number_of_iterations, neural_network, history):
                     node = node.expand(move, neural_network, node.history)
                     break  # Break after expanding to proceed to simulation
 
-        # Simulation and Backpropagation as before...
-        current_state = node.state.copy()
-        while not current_state.is_game_over():
-            legal_moves = list(current_state.legal_moves)
-            move = np.random.choice(legal_moves)
-            current_state.push(move)
 
-        result = current_state.result()
-        numeric_result = 1.0 if result == "1-0" else 0.25 if result == "1/2-1/2" else 0.0
-        node.backpropagate(numeric_result)
+    # Simulation and Backpropagation as before...
+#     current_state = node.state.copy()
+#     while not current_state.is_game_over():
+#         legal_moves = list(current_state.legal_moves)
+
+#         # Get historical representation of the current state
+#         historical_representation = get_historical_representation(current_state, node.history)
+#         historical_representation = historical_representation.reshape(1, 4, 8, 8, 14)  # Assuming this is the shape your network expects
+
+#         # Predict using the neural network
+#         policy_vector, value = neural_network.predict(historical_representation, verbose=0)
+
+#         # Normalize the policy vector for only legal moves
+#         move_probabilities = np.zeros(policy_vector.shape)
+#         legal_indices = [encodeMove(move, current_state) for move in legal_moves]
+#         legal_probs = policy_vector[0, legal_indices]
+#         legal_probs = legal_probs / np.sum(legal_probs)  # Normalize probabilities
+
+#         # Weighted random choice among legal moves
+#         move = np.random.choice(legal_moves, p=legal_probs)
+
+#         # Push the chosen move to the state
+#         current_state.push(move)
+
+
+#     result = current_state.result()
+#     numeric_result = 1.0 if result == "1-0" else 0.5 if result == "1/2-1/2" else 0.0
+    value_estimate = neural_network.predict(np.expand_dims(get_historical_representation(node.state, node.history), axis=0), verbose=0)[1][0]
+    node.backpropagate(value_estimate)
 
     return root_node.best_child(c_param=0.0).state.move_stack[-1]  # Return the last move leading to the best child

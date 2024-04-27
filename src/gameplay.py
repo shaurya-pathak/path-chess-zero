@@ -1,4 +1,4 @@
-import chess.pgn
+import chess
 import datetime
 import numpy as np
 from IPython.display import HTML, display
@@ -8,8 +8,9 @@ import chess.svg
 import chess.pgn
 import datetime
 from io import StringIO
-from .board import encodeBoard
+from .board import encodeBoard, get_historical_representation
 from .mcts import uct_search
+import os
 
 def self_play_game(model, number_of_iterations=50, game_index=1):
     board = chess.Board()
@@ -23,10 +24,11 @@ def self_play_game(model, number_of_iterations=50, game_index=1):
     game.headers["Black"] = "Model"
     node = game
 
-    history = []  # Initialize the history list
+    # Initialize history as an empty numpy array with correct dimensions
+    history = np.empty((0, 8, 8, 14))  # Assuming encodeBoard returns (8, 8, 14) encoded board state
 
     while not board.is_game_over():
-        board_svg = chess.svg.board(board, size=200)
+        board_svg = chess.svg.board(board=board, size=200)
         display(HTML(board_svg))
 
         # Use historical representation for UCT search
@@ -39,9 +41,9 @@ def self_play_game(model, number_of_iterations=50, game_index=1):
 
             # Update history with the new state
             current_encoded = encodeBoard(board)
-            history.append(current_encoded)
-            if len(history) > 4:
-                history.pop(0)  # Keep the last 4 states
+            history = np.append(history, [current_encoded], axis=0)
+            if history.shape[0] > 4:
+                history = history[1:]  # Keep the last 4 states
 
             # Now use the updated history to get the representation for prediction
             historical_representation = get_historical_representation(board, history)
@@ -55,14 +57,6 @@ def self_play_game(model, number_of_iterations=50, game_index=1):
     game.headers["Result"] = board.result()
     return game_data, game
 
-def get_historical_representation(current_state, history):
-    current_encoded = encodeBoard(current_state)
-    history.append(current_encoded)
-    if len(history) > 4:
-        history.pop(0)
-    while len(history) < 4:
-        history.append(history[0])
-    return np.stack(history, axis=0)
 
 def save_game_to_pgn(game, filename="games.pgn"):
     with open(filename, "a") as pgn_file:
